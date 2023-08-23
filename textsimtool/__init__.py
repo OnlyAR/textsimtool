@@ -3,4 +3,4 @@
 # @date:          2023/7/13
 # @Description :
 
-from textsimtool.textsimtool import Similarity
+from .textsimtool import Similarity

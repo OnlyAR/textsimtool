@@ -2,8 +2,7 @@
 # @Author :       Jun
 # @date:          2023/7/13
 # @Description :
-import queue
-from typing import List, Union
+from typing import Union
 
 import numpy as np
 import torch

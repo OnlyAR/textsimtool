@@ -2,13 +2,15 @@
 # @Author :       Jun
 # @date:          2023/7/13
 # @Description :
+import json
+
 from loguru import logger
 from typing import List, Union, Dict
 import numpy as np
 import pandas as pd
 from text2vec import SentenceModel
 
-from textsimtool.utils.util import cos_sim, dot_score, semantic_search
+from .utils.util import cos_sim, dot_score, semantic_search
 
 
 class SimilarityABC:
@@ -115,7 +117,6 @@ class Similarity(SimilarityABC):
         logger.info(f"Start computing corpus embeddings, new docs: {len(corpus)}")
         corpus_embeddings = self._get_vector(list(corpus[self.text_column]), show_progress_bar=True).tolist()
         corpus['embedding'] = corpus_embeddings
-        print(corpus.head())
         self.corpus = pd.concat([self.corpus, corpus], ignore_index=True)
         self.corpus.reset_index(drop=True, inplace=True)
         logger.info(f"Add {len(corpus)} docs, total: {len(self.corpus)}")
@@ -154,6 +155,13 @@ class Similarity(SimilarityABC):
         """Compute cosine distance between two texts."""
         return 1 - self.similarity(a, b)
 
+    def count_filter(self, **kwargs):
+        """Filter corpus by count."""
+        corpus = self.corpus.copy()
+        for col, val in kwargs.items():
+            corpus = corpus[corpus[col] == val]
+        return len(corpus)
+
     def most_similar(self, query: str, topn: int = 10, score_function: str = "cos_sim", **kwargs):
         """
         Find the topn most similar texts to the queries against the corpus.
@@ -168,9 +176,12 @@ class Similarity(SimilarityABC):
         score_function = self.score_functions[score_function]
         queries_embeddings = self._get_vector(query)
         corpus = self.corpus.copy()
+        corpus['score'] = 0
 
         for col, val in kwargs.items():
             corpus = corpus[corpus[col] == val]
+
+        corpus.reset_index(drop=True, inplace=True)
 
         corpus_embeddings = np.array(corpus['embedding'].tolist(), dtype=np.float32)
         hits = semantic_search(queries_embeddings, corpus_embeddings, top_k=topn, score_function=score_function)[0]
@@ -181,26 +192,33 @@ class Similarity(SimilarityABC):
         corpus.sort_values(by=['score'], ascending=False, inplace=True)
         result = corpus.head(topn)
         result.reset_index(drop=True, inplace=True)
-        result.drop(columns=['embedding'], inplace=True)
+        result = result.drop(columns=['embedding'])
         return result
 
-    def save_index(self, index_path: str = "corpus_emb.csv"):
+    def save_index(self, index_path: str = "corpus_emb.index"):
         """
         Save corpus embeddings to json file.
         :param index_path: json file path
         :return:
         """
-        self.corpus.to_csv(f'{index_path}', index=False)
+        columns = self.corpus.columns.tolist()
+        with open(index_path, 'w', encoding='utf8') as f:
+            for i, row in self.corpus.iterrows():
+                js = {}
+                for col in columns:
+                    js[col] = row[col]
+                f.write(json.dumps(js, ensure_ascii=False) + '\n')
         logger.debug(f"Save corpus embeddings to file: {index_path}.")
 
-    def load_index(self, index_path: str = "corpus_emb.json"):
+    def load_index(self, index_path: str = "corpus_emb.index"):
         """
         Load corpus embeddings from json file.
         :param index_path: json file path
         :return: list of corpus embeddings, dict of corpus ids map, dict of corpus
         """
         try:
-            corpus = pd.read_csv(index_path)
+            with open(index_path, 'r', encoding='utf8') as f:
+                corpus = pd.DataFrame([json.loads(line) for line in f])
             self.corpus = pd.concat([self.corpus, corpus], ignore_index=True)
             self.corpus.reset_index(drop=True, inplace=True)
             logger.debug(f"Load corpus embeddings from file: {index_path}.")
